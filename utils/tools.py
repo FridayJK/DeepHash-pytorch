@@ -5,12 +5,15 @@ import torch
 from PIL import Image
 from tqdm import tqdm
 import torchvision.datasets as dsets
-
+import os
 
 def config_dataset(config):
     if "cifar" in config["dataset"]:
         config["topK"] = -1
         config["n_class"] = 10
+    elif "GLDv2" in config["dataset"]:
+        config["topK"] = 4
+        config["n_class"] = 101302 #0-101301
     elif config["dataset"] in ["nuswide_21", "nuswide_21_m"]:
         config["topK"] = 5000
         config["n_class"] = 21
@@ -39,6 +42,8 @@ def config_dataset(config):
         config["data_path"] = "/dataset/COCO_2014/"
     if config["dataset"] == "voc2012":
         config["data_path"] = "/dataset/"
+    if config["dataset"] == "GLDv2-0":
+        config["data_path"] = "/home/data/GLDv2-0/"
     config["data"] = {
         "train_set": {"list_path": "./data/" + config["dataset"] + "/train.txt", "batch_size": config["batch_size"]},
         "database": {"list_path": "./data/" + config["dataset"] + "/database.txt", "batch_size": config["batch_size"]},
@@ -82,6 +87,22 @@ class MyCIFAR10(dsets.CIFAR10):
         img = self.transform(img)
         target = np.eye(10, dtype=np.int8)[np.array(target)]
         return img, target, index
+
+class MyGLDv2(object):
+    def __init__(self, data, targets, transform,class_num=0):
+        self.data = data
+        self.targets = targets
+        self.transform = transform
+        self.class_num = class_num
+    def __getitem__(self, index):
+        img, target = self.data[index], self.targets[index]
+        # img = Image.fromarray(img)
+        # img = self.transform(img)
+        target = np.eye(self.class_num, dtype=np.int8)[np.array(target)]   #?
+        return img, target, index
+
+    def __len__(self):
+        return self.data.shape[0]
 
 
 def cifar_dataset(config):
@@ -159,25 +180,130 @@ def cifar_dataset(config):
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
                                                batch_size=batch_size,
                                                shuffle=True,
+                                               num_workers=0)
+
+    test_loader = torch.utils.data.DataLoader(dataset=test_dataset,
+                                              batch_size=batch_size,
+                                              shuffle=False,
+                                              num_workers=0)
+
+    database_loader = torch.utils.data.DataLoader(dataset=database_dataset,
+                                                  batch_size=batch_size,
+                                                  shuffle=False,
+                                                  num_workers=0)
+
+    return train_loader, test_loader, database_loader, \
+           train_index.shape[0], test_index.shape[0], database_index.shape[0]
+
+def gldv2_dataset(config):
+    batch_size = config["batch_size"]
+
+    # train_size = 500
+    # test_size = 100
+
+    # if config["dataset"] == "cifar10-2":
+    #     train_size = 5000
+    #     test_size = 1000
+
+    transform = transforms.Compose([
+        # transforms.Resize(config["crop_size"]),
+        transforms.ToTensor(),
+        # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+
+    train_data = np.load(config["data_path"]+"GLDv2_index_r-mac_feat2048.npy")
+    train_labels = np.load(config["data_path"]+"index_land_ids_labels.npy")
+    # train_data = 
+    test_data = np.load(config["data_path"]+"GLDv2_test_r-mac_feat2048_clean.npy")
+    test_labels = np.load(config["data_path"]+"test_land_ids_label.npy")
+
+
+    #排除掉 < thre 个数的类别
+    hole_test = np.zeros((train_labels.max()+1),dtype=np.int)
+    for i in range(train_labels.shape[0]):
+        hole_test[train_labels[i]]+=1
+
+    thre = 300
+    first = True
+    land_id_filter = np.where(hole_test >= thre)[0]
+    if(os.path.exists(config["data_path"]+str(thre)+"_thre_data.npy")):
+        X = np.load(config["data_path"]+str(thre)+"_thre_data.npy")
+        L = np.load(config["data_path"]+str(thre)+"_thre_label.npy")
+        print("X shape",land_id_filter.shape[0],X.shape[0],X.shape[1])
+    else:
+        for i,land_id in enumerate(land_id_filter):
+            index = np.where(train_labels==land_id)[0]
+            if first:
+                train_labels[index] = i
+                L = train_labels[index]
+                X = train_data[index]
+                first = False
+            else:
+                train_labels[index] = i
+                L = np.concatenate((L,train_labels[index]))
+                X = np.concatenate((X,train_data[index]))
+            print("X shape",land_id_filter.shape[0],i,X.shape[0],X.shape[1])
+
+        np.save(config["data_path"]+str(thre)+"_thre_data.npy",X)
+        np.save(config["data_path"]+str(thre)+"_thre_label.npy",L)
+
+
+        
+
+
+    # Dataset
+    train_dataset = MyGLDv2(data=X,
+                              targets=L,
+                              transform=transform,
+                              class_num = land_id_filter.shape[0])
+
+    test_dataset = MyGLDv2(data=test_data,
+                             targets=test_labels,
+                             transform=transform,
+                             class_num = hole_test.shape[0])
+
+    database_dataset = MyGLDv2(data=train_data,
+                              targets=train_labels,
+                              transform=transform,
+                              class_num = hole_test.shape[0])
+
+    # database_dataset = MyGLDv2(data=train_data[0:10000],
+    #                           targets=train_labels[0:10000],
+    #                           transform=transform,
+    #                           class_num = hole_test.shape[0])
+
+    print("train_dataset", train_dataset.data.shape[0])
+    print("test_dataset", test_dataset.data.shape[0])
+    print("database_dataset", database_dataset.data.shape[0])   
+
+    train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
+                                               batch_size=batch_size,
+                                               shuffle=True,
                                                num_workers=4)
 
     test_loader = torch.utils.data.DataLoader(dataset=test_dataset,
                                               batch_size=batch_size,
                                               shuffle=False,
-                                              num_workers=4)
+                                              num_workers=2)
 
     database_loader = torch.utils.data.DataLoader(dataset=database_dataset,
                                                   batch_size=batch_size,
                                                   shuffle=False,
-                                                  num_workers=4)
+                                                  num_workers=2)
+
+    config["n_class"] = land_id_filter.shape[0]
 
     return train_loader, test_loader, database_loader, \
-           train_index.shape[0], test_index.shape[0], database_index.shape[0]
+           train_dataset.data.shape[0], test_dataset.data.shape[0], database_dataset.data.shape[0]
+
 
 
 def get_data(config):
     if "cifar" in config["dataset"]:
         return cifar_dataset(config)
+
+    if "GLDv2" in config["dataset"]:
+        return gldv2_dataset(config)
 
     dsets = {}
     dset_loaders = {}

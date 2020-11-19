@@ -6,6 +6,7 @@ import torch
 import torch.optim as optim
 import time
 import numpy as np
+from tqdm import tqdm
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
@@ -25,11 +26,12 @@ def get_config():
         # "crop_size": 224,
         "resize_size": 32,
         "crop_size": 224,
-        "batch_size": 32,
-        "net": AlexNet,
+        "batch_size": 64,
+        "net": HashEmbNet,
         # "net":ResNet,
+        "dataset": "GLDv2-0",
         # "dataset": "cifar10",
-        "dataset": "cifar10-1",
+        # "dataset": "cifar10-1",
         # "dataset": "cifar10-2",
         # "dataset": "coco",
         # "dataset": "mirflickr",
@@ -38,8 +40,8 @@ def get_config():
         # "dataset": "nuswide_21",
         # "dataset": "nuswide_21_m",
         # "dataset": "nuswide_81_m",
-        "epoch": 250,
-        "test_map": 15,
+        "epoch": 100,
+        "test_map": 1,
         "save_path": "save/DSH",
         # "device":torch.device("cpu"),
         "device": torch.device("cuda:0"),
@@ -54,6 +56,8 @@ class DSHLoss(torch.nn.Module):
         super(DSHLoss, self).__init__()
         self.m = 2 * bit
         self.U = torch.zeros(config["num_train"], bit).float().to(config["device"])
+        # self.Y = torch.zeros(config["num_train"], config["n_class"]).float()
+        # self.U = torch.zeros(config["num_train"], bit).float().to(config["device"])
         self.Y = torch.zeros(config["num_train"], config["n_class"]).float().to(config["device"])
 
 
@@ -94,7 +98,8 @@ def train_val(config, bit):
         net.train()
 
         train_loss = 0
-        for image, label, ind in train_loader:
+        i=0
+        for image, label, ind in tqdm(train_loader):
             image = image.to(device)
             label = label.to(device)
 
@@ -106,6 +111,9 @@ def train_val(config, bit):
 
             loss.backward()
             optimizer.step()
+            i+=1
+            # if(i%100 == 0):
+            #     print("\b\b\b\b\b\b\b ", len(train_loader), i)
 
         train_loss = train_loss / len(train_loader)
 
