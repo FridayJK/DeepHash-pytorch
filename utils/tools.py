@@ -12,7 +12,7 @@ def config_dataset(config):
         config["topK"] = -1
         config["n_class"] = 10
     elif "GLDv2" in config["dataset"]:
-        config["topK"] = 4
+        config["topK"] = 10
         config["n_class"] = 101302 #0-101301
     elif config["dataset"] in ["nuswide_21", "nuswide_21_m"]:
         config["topK"] = 5000
@@ -89,17 +89,22 @@ class MyCIFAR10(dsets.CIFAR10):
         return img, target, index
 
 class MyGLDv2(object):
-    def __init__(self, data, targets, transform,class_num=0):
+    def __init__(self, data, targets, transform,class_num=0,train_flag=0):
         self.data = data
         self.targets = targets
         self.transform = transform
         self.class_num = class_num
+        self.train_flag = train_flag
     def __getitem__(self, index):
         img, target = self.data[index], self.targets[index]
         # img = Image.fromarray(img)
         # img = self.transform(img)
-        target = np.eye(self.class_num, dtype=np.int8)[np.array(target)]   #?
-        return img, target, index
+        if(self.train_flag):
+            target = np.eye(self.class_num, dtype=np.int8)[np.array(target)]   #?
+            return img, target, index
+        else:
+            target = np.array(target)
+            return img, target, index
 
     def __len__(self):
         return self.data.shape[0]
@@ -223,7 +228,7 @@ def gldv2_dataset(config):
     for i in range(train_labels.shape[0]):
         hole_test[train_labels[i]]+=1
 
-    thre = 300
+    thre = 20
     first = True
     land_id_filter = np.where(hole_test >= thre)[0]
     if(os.path.exists(config["data_path"]+str(thre)+"_thre_data.npy")):
@@ -231,18 +236,29 @@ def gldv2_dataset(config):
         L = np.load(config["data_path"]+str(thre)+"_thre_label.npy")
         print("X shape",land_id_filter.shape[0],X.shape[0],X.shape[1])
     else:
+        filter_num = 0
         for i,land_id in enumerate(land_id_filter):
             index = np.where(train_labels==land_id)[0]
-            if first:
-                train_labels[index] = i
-                L = train_labels[index]
-                X = train_data[index]
-                first = False
-            else:
-                train_labels[index] = i
-                L = np.concatenate((L,train_labels[index]))
-                X = np.concatenate((X,train_data[index]))
-            print("X shape",land_id_filter.shape[0],i,X.shape[0],X.shape[1])
+            filter_num += index.shape[0]
+        L = np.zeros((filter_num), dtype=np.int)
+        X = np.zeros((filter_num, train_data.shape[1]), dtype=np.float32)
+        filter_num = 0
+        for i,land_id in enumerate(land_id_filter):
+            index = np.where(train_labels==land_id)[0]
+            train_labels[index] = i #修改训练数据id label
+            L[filter_num:(filter_num+index.shape[0])] = train_labels[index]
+            X[filter_num:(filter_num+index.shape[0]),:] = train_data[index]
+            filter_num += index.shape[0]
+            # if first:
+            #     train_labels[index] = i
+            #     L = train_labels[index]
+            #     X = train_data[index]
+            #     first = False
+            # else:
+            #     train_labels[index] = i
+            #     L = np.concatenate((L,train_labels[index]))
+            #     X = np.concatenate((X,train_data[index]))
+            print("X shape",land_id_filter.shape[0],i,X.shape[0],filter_num)
 
         np.save(config["data_path"]+str(thre)+"_thre_data.npy",X)
         np.save(config["data_path"]+str(thre)+"_thre_label.npy",L)
@@ -255,7 +271,8 @@ def gldv2_dataset(config):
     train_dataset = MyGLDv2(data=X,
                               targets=L,
                               transform=transform,
-                              class_num = land_id_filter.shape[0])
+                              class_num = land_id_filter.shape[0],
+                              train_flag = 1)
 
     test_dataset = MyGLDv2(data=test_data,
                              targets=test_labels,
@@ -279,24 +296,22 @@ def gldv2_dataset(config):
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
                                                batch_size=batch_size,
                                                shuffle=True,
-                                               num_workers=4)
+                                               num_workers=0)
 
     test_loader = torch.utils.data.DataLoader(dataset=test_dataset,
                                               batch_size=batch_size,
                                               shuffle=False,
-                                              num_workers=2)
+                                              num_workers=0)
 
     database_loader = torch.utils.data.DataLoader(dataset=database_dataset,
                                                   batch_size=batch_size,
                                                   shuffle=False,
-                                                  num_workers=2)
+                                                  num_workers=0)
 
     config["n_class"] = land_id_filter.shape[0]
 
     return train_loader, test_loader, database_loader, \
            train_dataset.data.shape[0], test_dataset.data.shape[0], database_dataset.data.shape[0]
-
-
 
 def get_data(config):
     if "cifar" in config["dataset"]:
@@ -321,7 +336,6 @@ def get_data(config):
     return dset_loaders["train_set"], dset_loaders["test"], dset_loaders["database"], \
            len(dsets["train_set"]), len(dsets["test"]), len(dsets["database"])
 
-
 def compute_result(dataloader, net, device):
     bs, clses = [], []
     net.eval()
@@ -330,12 +344,59 @@ def compute_result(dataloader, net, device):
         bs.append((net(img.to(device))).data.cpu())
     return torch.cat(bs).sign(), torch.cat(clses)
 
+def compute_result_gldv2(dataloader, net, device):
+    bs = torch.zeros(761757,48)
+    clses = torch.zeros((761757,101302),dtype=torch.int8)
+    net.eval()
+    i=0
+    index = 0
+    for img, cls, _ in tqdm(dataloader):
+        index += img.size()[0]
+        clses[i*64:index,:] = cls
+        bs[i*64:index,:] = (net(img.to(device))).data.cpu()
+        i+=1
+    return bs.sign(), clses
+
+def compute_result_gldv2_only_feat(dataloader, net, config, flag, device):
+    clses = []
+    if(flag):
+        bs = torch.zeros(config["num_dataset"],config['bit_list'][0])
+    else:
+        bs = torch.zeros(config["num_test"],config['bit_list'][0])
+    net.eval()
+    i=0
+    index = 0
+    for img, cls, _ in tqdm(dataloader):
+        index += img.size()[0]
+        clses.append(cls)
+        bs[i*config["batch_size"]:index,:] = (net(img.to(device))).data.cpu()
+        i+=1
+    return bs.sign(), torch.cat(clses)
+
 
 def CalcHammingDist(B1, B2):
     q = B2.shape[1]
     distH = 0.5 * (q - np.dot(B1, B2.transpose()))
     return distH
 
+def CalcTopMAP_ByIndex(rB, qB, retrievalL, queryL, topk):
+    num_query = queryL.shape[0]
+    topkmap = 0
+    P = []
+    for iter in tqdm(range(num_query)):
+        # gnd = (np.dot(queryL[iter, :], retrievalL.transpose()) > 0).astype(np.float32)
+        hamm = CalcHammingDist(qB[iter, :], rB)
+        ind = np.argsort(hamm)
+        gnd = retrievalL[ind]
+        # gnd = gnd[ind]
+        tgnd = gnd[0:topk]
+
+        r_num = (tgnd==queryL[iter]).sum()
+        P.append(r_num/topk)
+
+    topkmap = sum(P)/len(P)
+ 
+    return topkmap
 
 def CalcTopMap(rB, qB, retrievalL, queryL, topk):
     num_query = queryL.shape[0]

@@ -31,6 +31,41 @@ class HashEmbNet(nn.Module):
         x = self.hash_layer(x)
         return x
 
+class HashEmbNet_Scratch(nn.Module):
+    def __init__(self, hash_bit, pretrained=True):
+        super(HashEmbNet_Scratch, self).__init__()
+
+        # model_alexnet = models.alexnet(pretrained=pretrained)
+        # self.features = model_alexnet.features
+        cl1 = nn.Linear(2048, 1024)
+        nn.init.xavier_normal_(cl1.weight.data,gain=1.0) 
+        cl1.bias.data.fill_(0.0)
+        # cl1.weight = nn.Parameter(model_alexnet.classifier[1].weight[0:1024,0:2048])
+        # cl1.bias = nn.Parameter(model_alexnet.classifier[1].bias[0:1024])
+
+        cl2 = nn.Linear(1024, 1024)
+        nn.init.xavier_normal_(cl2.weight.data,gain=1.0) 
+        cl2.bias.data.fill_(0.0)
+        # cl2.weight = nn.Parameter(model_alexnet.classifier[4].weight[0:1024,0:1024])
+        # cl2.bias = nn.Parameter(model_alexnet.classifier[4].bias[0:1024])
+
+        self.hash_layer = nn.Sequential(
+            # nn.Dropout(),
+            cl1,
+            nn.ReLU(inplace=True),
+            # nn.Dropout(),
+            cl2,
+            nn.ReLU(inplace=True),
+            nn.Linear(1024, hash_bit),
+        )
+
+    def forward(self, x):
+        # x = self.features(x)
+        x = x.view(x.size(0), 2048)
+        x = self.hash_layer(x)
+        return x
+
+
 class AlexNet(nn.Module):
     def __init__(self, hash_bit, pretrained=True):
         super(AlexNet, self).__init__()

@@ -8,7 +8,7 @@ import time
 import numpy as np
 from tqdm import tqdm
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+# os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -26,8 +26,8 @@ def get_config():
         # "crop_size": 224,
         "resize_size": 32,
         "crop_size": 224,
-        "batch_size": 64,
-        "net": HashEmbNet,
+        "batch_size": 16,
+        "net": HashEmbNet_Scratch,
         # "net":ResNet,
         "dataset": "GLDv2-0",
         # "dataset": "cifar10",
@@ -41,11 +41,11 @@ def get_config():
         # "dataset": "nuswide_21_m",
         # "dataset": "nuswide_81_m",
         "epoch": 100,
-        "test_map": 1,
+        "test_map": 3,
         "save_path": "save/DSH",
         # "device":torch.device("cpu"),
-        "device": torch.device("cuda:0"),
-        "bit_list": [48],
+        "device": torch.device("cuda:3"),
+        "bit_list": [128],
     }
     config = config_dataset(config)
     return config
@@ -74,17 +74,42 @@ class DSHLoss(torch.nn.Module):
 
         return loss1 + loss2
 
+class DSHLoss_CPU(torch.nn.Module):
+    def __init__(self, config, bit):
+        super(DSHLoss_CPU, self).__init__()
+        self.m = 2 * bit
+        self.U = torch.zeros(config["num_train"], bit).float().to(config["device"])
+        # self.Y = torch.zeros(config["num_train"], config["n_class"]).float()
+        # self.U = torch.zeros(config["num_train"], bit).float().to(config["device"])
+        self.Y = torch.zeros(config["num_train"], config["n_class"]).float()
+
+
+    def forward(self, u, y, ind, config):
+        self.U[ind, :] = u.data
+        self.Y[ind, :] = y.float()
+
+        dist = (u.unsqueeze(1) - self.U.unsqueeze(0)).pow(2).sum(dim=2)
+        # dist = dist.cpu()
+        y = (y @ self.Y.t() == 0).float()
+        y = y.to(config["device"])
+        loss = (1 - y) / 2 * dist + y / 2 * (self.m - dist).clamp(min=0)
+        loss1 = loss.mean()
+        loss2 = config["alpha"] * (1 - u.sign()).abs().mean()
+
+        return loss1 + loss2
 
 def train_val(config, bit):
 
     device = config["device"]
     train_loader, test_loader, dataset_loader, num_train, num_test, num_dataset = get_data(config)
     config["num_train"] = num_train
+    config["num_test"] = num_test
+    config["num_dataset"] = num_dataset
     net = config["net"](bit).to(device)
 
     optimizer = config["optimizer"]["type"](net.parameters(), **(config["optimizer"]["optim_params"]))
 
-    criterion = DSHLoss(config, bit)
+    criterion = DSHLoss_CPU(config, bit)
 
     Best_mAP = 0
 
@@ -101,7 +126,7 @@ def train_val(config, bit):
         i=0
         for image, label, ind in tqdm(train_loader):
             image = image.to(device)
-            label = label.to(device)
+            # label = label.to(device)
 
             optimizer.zero_grad()
             u = net(image)
@@ -121,13 +146,13 @@ def train_val(config, bit):
 
         if (epoch + 1) % config["test_map"] == 0:
             # print("calculating test binary code......")
-            tst_binary, tst_label = compute_result(test_loader, net, device=device)
+            tst_binary, tst_label = compute_result_gldv2_only_feat(test_loader, net, config, 0, device=device)
 
             # print("calculating dataset binary code.......")\
-            trn_binary, trn_label = compute_result(dataset_loader, net, device=device)
+            trn_binary, trn_label = compute_result_gldv2_only_feat(dataset_loader, net, config, 1, device=device)
 
             # print("calculating map.......")
-            mAP = CalcTopMap(trn_binary.numpy(), tst_binary.numpy(), trn_label.numpy(), tst_label.numpy(),
+            mAP = CalcTopMAP_ByIndex(trn_binary.numpy(), tst_binary.numpy(), trn_label.numpy(), tst_label.numpy(),
                              config["topK"])
 
             if mAP > Best_mAP:
