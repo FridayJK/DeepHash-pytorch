@@ -37,21 +37,33 @@ class HashEmbNet_Scratch(nn.Module):
 
         # model_alexnet = models.alexnet(pretrained=pretrained)
         # self.features = model_alexnet.features
-        cl1 = nn.Linear(2048, 800)
+        conv1 = nn.Conv2d(in_channels=2048,out_channels= 2048,kernel_size=1,stride=1,padding=0)
+        nn.init.xavier_normal_(conv1.weight.data,gain=1.0)
+        conv1.bias.data.fill_(0.0)
+        cl1 = nn.Linear(2048, 1024)
         nn.init.xavier_normal_(cl1.weight.data,gain=1.0) 
         cl1.bias.data.fill_(0.0)
         # cl1.weight = nn.Parameter(model_alexnet.classifier[1].weight[0:1024,0:2048])
         # cl1.bias = nn.Parameter(model_alexnet.classifier[1].bias[0:1024])
 
-        cl2 = nn.Linear(800, 1024)
+        cl2 = nn.Linear(1024, 1024)
         nn.init.xavier_normal_(cl2.weight.data,gain=1.0) 
         cl2.bias.data.fill_(0.0)
         # cl2.weight = nn.Parameter(model_alexnet.classifier[4].weight[0:1024,0:1024])
         # cl2.bias = nn.Parameter(model_alexnet.classifier[4].bias[0:1024])
+        self.conv_layer = nn.Sequential(
+            conv1,
+            nn.BatchNorm2d(2048),
+            nn.ReLU(inplace=True),
+        )
 
         self.hash_layer = nn.Sequential(
+            # conv1,
+            # nn.BatchNorm1d(2048),
+            # nn.ReLU(inplace=True),
             nn.Dropout(),
             cl1,
+            nn.BatchNorm1d(1024),
             nn.ReLU(inplace=True),
             nn.Dropout(),
             cl2,
@@ -61,9 +73,11 @@ class HashEmbNet_Scratch(nn.Module):
 
     def forward(self, x):
         # x = self.features(x)
+        x = x.view(x.size(0), 2048,1,1)
+        x = self.conv_layer(x)
         x = x.view(x.size(0), 2048)
         x = self.hash_layer(x)
-        x=torch.nn.functional.normalize(x)
+        # x=nn.functional.normalize(x)
         return x
 
 

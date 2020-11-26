@@ -125,7 +125,7 @@ class DSHLoss_PartSample(torch.nn.Module):
         self.U[ind, :] = u.data
         self.Y[ind] = y.float()
 
-        max_SampleNum = 20
+        max_SampleNum = 30
 
         #make part sample
         # randm_indx = torch.randperm(self.Y.shape[0])
@@ -167,7 +167,11 @@ def train_val(config, bit):
     config["num_train"] = num_train
     config["num_test"] = num_test
     config["num_dataset"] = num_dataset
+
     net = config["net"](bit).to(device)
+    if(os.path.exists("save/DSH/GLDv2-0-val0.197-model.pt")):
+        net.load_state_dict(torch.load("save/DSH/GLDv2-0-val0.197-model.pt"))
+        print("train from","save/DSH/GLDv2-0-val0.197-model.pt")
 
     optimizer = config["optimizer"]["type"](net.parameters(), **(config["optimizer"]["optim_params"]))
 
@@ -187,7 +191,7 @@ def train_val(config, bit):
         train_loss = 0
         i=0
         for image, label, ind in tqdm(train_loader):
-            set_learning_rate(optimizer, epoch, len(train_loader), i)
+            # set_learning_rate(optimizer, epoch, len(train_loader), i)
             image = image.to(device)
             # label = label.to(device)
 
@@ -208,15 +212,14 @@ def train_val(config, bit):
         print("\b\b\b\b\b\b\b loss:%.3f" % (train_loss))
 
         if (epoch + 1) % config["test_map"] == 0:
-            # print("calculating test binary code......")
-            # tst_binary, tst_label = compute_result_gldv2_only_feat(test_loader, net, config, 0, device=device)
-            tst_binary, tst_label = compute_result_gldv2_only_feat(train_loader[0:10], net, config, 0, device=device)
 
-            # print("calculating dataset binary code.......")\
-            # trn_binary, trn_label = compute_result_gldv2_only_feat(dataset_loader, net, config, 1, device=device)
-            trn_binary, trn_label = compute_result_gldv2_only_feat(train_loader[10:], net, config, 1, device=device)
+            val_binary, val_label = compute_result_gldv2_only_feat(train_loader, net, config, 1, device=device)
+            val_map = CalcTopMAP_ByIndex(val_binary.numpy()[1000:,:], val_binary.numpy()[0:1000,:], val_label.numpy()[1000:], val_label.numpy()[0:1000], config["topK"])
+            print("%s epoch:%d, bit:%d, dataset:%s,val_MAP:%.3f" % (
+                config["info"], epoch + 1, bit, config["dataset"], val_map))
 
-            # print("calculating map.......")
+            tst_binary, tst_label = compute_result_gldv2_only_feat(test_loader, net, config, 0, device=device)
+            trn_binary, trn_label = compute_result_gldv2_only_feat(dataset_loader, net, config, 1, device=device)
             mAP = CalcTopMAP_ByIndex(trn_binary.numpy(), tst_binary.numpy(), trn_label.numpy(), tst_label.numpy(),
                              config["topK"])
 

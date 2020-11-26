@@ -360,10 +360,7 @@ def compute_result_gldv2(dataloader, net, device):
 
 def compute_result_gldv2_only_feat(dataloader, net, config, flag, device):
     clses = []
-    if(flag):
-        bs = torch.zeros(config["num_dataset"],config['bit_list'][0])
-    else:
-        bs = torch.zeros(config["num_test"],config['bit_list'][0])
+    bs = torch.zeros(dataloader.dataset.__len__(),config['bit_list'][0])
     net.eval()
     i=0
     index = 0
