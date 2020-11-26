@@ -1,6 +1,7 @@
 from utils.tools import *
 from network import *
 
+import math
 import os
 import torch
 import torch.optim as optim
@@ -16,6 +17,16 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 # paper [Deep Supervised Hashing for Fast Image Retrieval](https://www.cv-foundation.org/openaccess/content_cvpr_2016/papers/Liu_Deep_Supervised_Hashing_CVPR_2016_paper.pdf)
 # code [DSH-pytorch](https://github.com/weixu000/DSH-pytorch)
 
+def set_learning_rate(optimizer, epoch, iter_size, iter_num):
+    current_iter = epoch * iter_size + iter_num
+    if current_iter < 1000:
+        current_lr = 1e-5 * math.pow(current_iter / 1000, 4)
+    else:
+        current_lr = 1e-5 * (1 + math.cos(epoch * math.pi / 100)) / 2
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = current_lr
+    return current_lr
+
 def get_config():
     config = {
         "alpha": 0.1,
@@ -26,7 +37,7 @@ def get_config():
         # "crop_size": 224,
         "resize_size": 32,
         "crop_size": 224,
-        "batch_size": 16,
+        "batch_size": 128,
         "net": HashEmbNet_Scratch,
         # "net":ResNet,
         "dataset": "GLDv2-0",
@@ -41,7 +52,7 @@ def get_config():
         # "dataset": "nuswide_21_m",
         # "dataset": "nuswide_81_m",
         "epoch": 100,
-        "test_map": 3,
+        "test_map": 1,
         "save_path": "save/DSH",
         # "device":torch.device("cpu"),
         "device": torch.device("cuda:3"),
@@ -49,6 +60,7 @@ def get_config():
     }
     config = config_dataset(config)
     return config
+
 
 
 class DSHLoss(torch.nn.Module):
@@ -98,6 +110,56 @@ class DSHLoss_CPU(torch.nn.Module):
 
         return loss1 + loss2
 
+class DSHLoss_PartSample(torch.nn.Module):
+    def __init__(self, config, bit):
+        super(DSHLoss_PartSample, self).__init__()
+        self.m = 2 * bit
+        self.U = torch.zeros(config["num_train"], bit).float().to(config["device"])
+        # self.Y = torch.zeros(config["num_train"], config["n_class"]).float()
+        # self.U = torch.zeros(config["num_train"], bit).float().to(config["device"])
+        self.Y = torch.zeros(config["num_train"]).float()
+        # self.Y = -1.0
+
+
+    def forward(self, u, y, ind, config):
+        self.U[ind, :] = u.data
+        self.Y[ind] = y.float()
+
+        max_SampleNum = 20
+
+        #make part sample
+        # randm_indx = torch.randperm(self.Y.shape[0])
+        randm_indx = torch.randperm(max_SampleNum*y.shape[0])
+        step = 0
+        for i , indx in enumerate(y):
+            tmp_idx = torch.where(self.Y==indx)
+            if(tmp_idx[0].shape[0]>max_SampleNum):
+                randm_indx[step:(step+max_SampleNum)] = tmp_idx[0][0:max_SampleNum]
+                step += max_SampleNum
+            else:
+                randm_indx[step:(step+tmp_idx[0].shape[0])] = tmp_idx[0]
+                step += tmp_idx[0].shape[0]
+        #new smple pool
+        Y_POOL = self.Y[randm_indx[0:step]]
+        U_POLL = self.U[randm_indx[0:step], :]
+            
+
+
+        dist = (u.unsqueeze(1) - U_POLL.unsqueeze(0)).pow(2).sum(dim=2)
+        # dist = dist.cpu()
+        y = (torch.repeat_interleave(y,step).reshape(y.shape[0],step) - Y_POOL.repeat(y.shape[0]).reshape(y.shape[0],step))
+        # y = (y.t() - Y_POOL.repeat(y.shape[0]).reshape(y.shape[0],step))
+        y = (y!=0).float()
+
+        # y = (y @ Y_POOL.t() == 0).float()
+        y = y.to(config["device"])
+        loss = (1 - y) / 2 * dist + y / 2 * (self.m - dist).clamp(min=0)
+        loss1 = loss.mean()
+        loss2 = config["alpha"] * (u.abs() - 1).abs().mean()
+        # loss2 = config["alpha"] * (1 - u.sign()).abs().mean()
+
+        return loss1 + loss2
+
 def train_val(config, bit):
 
     device = config["device"]
@@ -109,7 +171,7 @@ def train_val(config, bit):
 
     optimizer = config["optimizer"]["type"](net.parameters(), **(config["optimizer"]["optim_params"]))
 
-    criterion = DSHLoss_CPU(config, bit)
+    criterion = DSHLoss_PartSample(config, bit)
 
     Best_mAP = 0
 
@@ -125,6 +187,7 @@ def train_val(config, bit):
         train_loss = 0
         i=0
         for image, label, ind in tqdm(train_loader):
+            set_learning_rate(optimizer, epoch, len(train_loader), i)
             image = image.to(device)
             # label = label.to(device)
 
@@ -146,10 +209,12 @@ def train_val(config, bit):
 
         if (epoch + 1) % config["test_map"] == 0:
             # print("calculating test binary code......")
-            tst_binary, tst_label = compute_result_gldv2_only_feat(test_loader, net, config, 0, device=device)
+            # tst_binary, tst_label = compute_result_gldv2_only_feat(test_loader, net, config, 0, device=device)
+            tst_binary, tst_label = compute_result_gldv2_only_feat(train_loader[0:10], net, config, 0, device=device)
 
             # print("calculating dataset binary code.......")\
-            trn_binary, trn_label = compute_result_gldv2_only_feat(dataset_loader, net, config, 1, device=device)
+            # trn_binary, trn_label = compute_result_gldv2_only_feat(dataset_loader, net, config, 1, device=device)
+            trn_binary, trn_label = compute_result_gldv2_only_feat(train_loader[10:], net, config, 1, device=device)
 
             # print("calculating map.......")
             mAP = CalcTopMAP_ByIndex(trn_binary.numpy(), tst_binary.numpy(), trn_label.numpy(), tst_label.numpy(),

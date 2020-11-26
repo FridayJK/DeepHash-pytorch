@@ -37,23 +37,23 @@ class HashEmbNet_Scratch(nn.Module):
 
         # model_alexnet = models.alexnet(pretrained=pretrained)
         # self.features = model_alexnet.features
-        cl1 = nn.Linear(2048, 1024)
+        cl1 = nn.Linear(2048, 800)
         nn.init.xavier_normal_(cl1.weight.data,gain=1.0) 
         cl1.bias.data.fill_(0.0)
         # cl1.weight = nn.Parameter(model_alexnet.classifier[1].weight[0:1024,0:2048])
         # cl1.bias = nn.Parameter(model_alexnet.classifier[1].bias[0:1024])
 
-        cl2 = nn.Linear(1024, 1024)
+        cl2 = nn.Linear(800, 1024)
         nn.init.xavier_normal_(cl2.weight.data,gain=1.0) 
         cl2.bias.data.fill_(0.0)
         # cl2.weight = nn.Parameter(model_alexnet.classifier[4].weight[0:1024,0:1024])
         # cl2.bias = nn.Parameter(model_alexnet.classifier[4].bias[0:1024])
 
         self.hash_layer = nn.Sequential(
-            # nn.Dropout(),
+            nn.Dropout(),
             cl1,
             nn.ReLU(inplace=True),
-            # nn.Dropout(),
+            nn.Dropout(),
             cl2,
             nn.ReLU(inplace=True),
             nn.Linear(1024, hash_bit),
@@ -63,6 +63,7 @@ class HashEmbNet_Scratch(nn.Module):
         # x = self.features(x)
         x = x.view(x.size(0), 2048)
         x = self.hash_layer(x)
+        x=torch.nn.functional.normalize(x)
         return x
 
 

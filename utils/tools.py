@@ -100,7 +100,8 @@ class MyGLDv2(object):
         # img = Image.fromarray(img)
         # img = self.transform(img)
         if(self.train_flag):
-            target = np.eye(self.class_num, dtype=np.int8)[np.array(target)]   #?
+            # target = np.eye(self.class_num, dtype=np.int8)[np.array(target)]   #?
+            target = np.array(target)
             return img, target, index
         else:
             target = np.array(target)
