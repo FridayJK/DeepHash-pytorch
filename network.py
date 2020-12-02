@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 from torchvision import models
 
@@ -70,6 +71,65 @@ class HashEmbNet_Scratch(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(1024, hash_bit),
         )
+
+    def forward(self, x):
+        # x = self.features(x)
+        x = x.view(x.size(0), 2048,1,1)
+        x = self.conv_layer(x)
+        x = x.view(x.size(0), 2048)
+        x = self.hash_layer(x)
+        # x=nn.functional.normalize(x)
+        return x
+
+class HashTransNet(nn.Module):
+    def __init__(self, hash_bit, pretrained=True):
+        super(HashTransNet, self).__init__()
+
+        # model_alexnet = models.alexnet(pretrained=pretrained)
+        # self.features = model_alexnet.features
+        net_HashEmb = torch.load("save/DSH/GLDv2-0-test0.024-model_net.pt")
+        # conv1.weight = net_HashEmb.conv_layer[0].weight
+        # conv1.bias = net_HashEmb.conv_layer[0].bias
+
+        conv1 = nn.Conv2d(in_channels=2048,out_channels= 2048,kernel_size=1,stride=1,padding=0)
+        cl1 = nn.Linear(2048, 2048)
+        # nn.init.xavier_normal_(cl1.weight.data,gain=1.0) 
+        # cl1.bias.data.fill_(0.0)
+        # cl1.weight = nn.Parameter(model_alexnet.classifier[1].weight[0:1024,0:2048])
+        # cl1.bias = nn.Parameter(model_alexnet.classifier[1].bias[0:1024])
+        cl2 = nn.Linear(2048, 4096)
+        # nn.init.xavier_normal_(cl2.weight.data,gain=1.0) 
+        # cl2.bias.data.fill_(0.0)
+        # cl2.weight = nn.Parameter(model_alexnet.classifier[4].weight[0:1024,0:1024])
+        # cl2.bias = nn.Parameter(model_alexnet.classifier[4].bias[0:1024])
+        self.conv_layer = nn.Sequential(
+            conv1,
+            nn.BatchNorm2d(2048),
+            nn.ReLU(inplace=True),
+        )
+        self.conv_layer[0].weight = net_HashEmb.conv_layer[0].weight
+        self.conv_layer[0].bias = net_HashEmb.conv_layer[0].bias
+        self.conv_layer[1].weight = net_HashEmb.conv_layer[1].weight
+        self.conv_layer[1].bias = net_HashEmb.conv_layer[1].bias
+
+        self.hash_layer = nn.Sequential(
+            nn.Dropout(),
+            cl1,
+            nn.BatchNorm1d(2048),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+            cl2,
+            nn.ReLU(inplace=True),
+            nn.Linear(4096, hash_bit),
+        )
+
+        self.hash_layer[1].weight = nn.Parameter(net_HashEmb.hash_layer[1].weight.data.repeat(2,1)) #cl1
+        self.hash_layer[1].bias = nn.Parameter(net_HashEmb.hash_layer[1].bias.data.repeat(2))
+        self.hash_layer[2].weight = nn.Parameter(net_HashEmb.hash_layer[2].weight.data.repeat(2)) #BN(2048)
+        self.hash_layer[2].bias = nn.Parameter(net_HashEmb.hash_layer[2].bias.data.repeat(2))
+        self.hash_layer[5].weight = nn.Parameter(net_HashEmb.hash_layer[5].weight.data.repeat(4,2)) #cl2(2048)
+        self.hash_layer[5].bias = nn.Parameter(net_HashEmb.hash_layer[5].bias.data.repeat(4))
+
 
     def forward(self, x):
         # x = self.features(x)

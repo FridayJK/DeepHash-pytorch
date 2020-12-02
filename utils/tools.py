@@ -12,7 +12,7 @@ def config_dataset(config):
         config["topK"] = -1
         config["n_class"] = 10
     elif "GLDv2" in config["dataset"]:
-        config["topK"] = 10
+        config["topK"] = 4
         config["n_class"] = 101302 #0-101301
     elif config["dataset"] in ["nuswide_21", "nuswide_21_m"]:
         config["topK"] = 5000
@@ -229,7 +229,7 @@ def gldv2_dataset(config):
     for i in range(train_labels.shape[0]):
         hole_test[train_labels[i]]+=1
 
-    thre = 20
+    thre = 5
     first = True
     land_id_filter = np.where(hole_test >= thre)[0]
     if(os.path.exists(config["data_path"]+str(thre)+"_thre_data.npy")):
