@@ -140,6 +140,240 @@ class HashTransNet(nn.Module):
         # x=nn.functional.normalize(x)
         return x
 
+class HashTransNet1(nn.Module):
+    def __init__(self, hash_bit, pretrained=True):
+        super(HashTransNet1, self).__init__()
+
+        # model_alexnet = models.alexnet(pretrained=pretrained)
+        # self.features = model_alexnet.features
+        # net_HashEmb = torch.load("save/DSH/GLDv2-0-test0.024-model_net.pt")
+        model_path = "save/DSH/GLDv2-0-test0.149-end-model.pt"
+        net_HashDTH = torch.load(model_path)
+        # conv1.weight = net_HashEmb.conv_layer[0].weight
+        # conv1.bias = net_HashEmb.conv_layer[0].bias
+
+        conv1 = nn.Conv2d(in_channels=2048,out_channels= 2048,kernel_size=1,stride=1,padding=0)
+        cl1 = nn.Linear(2048, 2048)
+        # nn.init.xavier_normal_(cl1.weight.data,gain=1.0) 
+        # cl1.bias.data.fill_(0.0)
+        # cl1.weight = nn.Parameter(model_alexnet.classifier[1].weight[0:1024,0:2048])
+        # cl1.bias = nn.Parameter(model_alexnet.classifier[1].bias[0:1024])
+        cl2 = nn.Linear(2048, 4096)
+        self.conv_layer = nn.Sequential(
+            conv1,
+            nn.BatchNorm2d(2048),
+            nn.Tanh(),
+        )
+        # self.conv_layer[0].weight = net_HashEmb.conv_layer[0].weight
+        # self.conv_layer[0].bias = net_HashEmb.conv_layer[0].bias
+        # self.conv_layer[1].weight = net_HashEmb.conv_layer[1].weight
+        # self.conv_layer[1].bias = net_HashEmb.conv_layer[1].bias
+
+        self.hash_layer = nn.Sequential(
+            cl1,
+            nn.BatchNorm1d(2048),
+            nn.Tanh(),
+            cl2,
+            nn.Tanh(),
+            nn.Linear(4096, hash_bit),
+        )
+        self.conv_layer[0].weight = nn.Parameter(net_HashDTH["conv_layer.0.weight"])
+        self.conv_layer[0].bias = nn.Parameter(net_HashDTH["conv_layer.0.bias"])
+        self.conv_layer[1].weight = nn.Parameter(net_HashDTH["conv_layer.1.weight"])
+        self.conv_layer[1].bias = nn.Parameter(net_HashDTH["conv_layer.1.bias"])
+
+        self.hash_layer[0].weight = nn.Parameter(net_HashDTH["hash_layer.1.weight"])#fc1
+        self.hash_layer[0].bias = nn.Parameter(net_HashDTH["hash_layer.1.bias"])
+        self.hash_layer[1].weight = nn.Parameter(net_HashDTH["hash_layer.2.weight"])#bn1
+        self.hash_layer[1].bias = nn.Parameter(net_HashDTH["hash_layer.2.bias"])
+        self.hash_layer[3].weight = nn.Parameter(net_HashDTH["hash_layer.5.weight"])#fc2
+        self.hash_layer[3].bias = nn.Parameter(net_HashDTH["hash_layer.5.bias"])
+        self.hash_layer[5].weight = nn.Parameter(net_HashDTH["hash_layer.7.weight"])#fc3
+        self.hash_layer[5].bias = nn.Parameter(net_HashDTH["hash_layer.7.bias"])
+
+
+    def forward(self, x):
+        # x = self.features(x)
+        x = x.view(x.size(0), 2048,1,1)
+        x = self.conv_layer(x)
+        x = x.view(x.size(0), 2048)
+        x = self.hash_layer(x)
+        # x=nn.functional.normalize(x)
+        return x
+
+class HashTransNet2(nn.Module):
+    def __init__(self, hash_bit, pretrained=True):
+        super(HashTransNet2, self).__init__()
+        model_path = "save/DSH/GLDv2-0-test0.161-net1-model.pt"
+        net_HashDTH = torch.load(model_path)
+
+        conv1 = nn.Conv2d(in_channels=2048,out_channels= 2048,kernel_size=1,stride=1,padding=0)
+        cl1 = nn.Linear(2048, 2048)
+        # nn.init.xavier_normal_(cl1.weight.data,gain=1.0) 
+        # cl1.bias.data.fill_(0.0)
+        # cl1.weight = nn.Parameter(model_alexnet.classifier[1].weight[0:1024,0:2048])
+        # cl1.bias = nn.Parameter(model_alexnet.classifier[1].bias[0:1024])
+        cl2 = nn.Linear(2048, 4096)
+        cl3 = nn.Linear(4096, 4096)
+        self.conv_layer = nn.Sequential(
+            conv1,
+            nn.BatchNorm2d(2048),
+            nn.Tanh(),
+        )
+
+        self.hash_layer = nn.Sequential(
+            cl1,
+            nn.BatchNorm1d(2048),
+            nn.Tanh(),
+            cl2,
+            nn.Tanh(),
+            cl3,
+            nn.Tanh(),
+            nn.Linear(4096, hash_bit),  
+        )
+        self.conv_layer[0].weight = nn.Parameter(net_HashDTH["conv_layer.0.weight"])
+        self.conv_layer[0].bias = nn.Parameter(net_HashDTH["conv_layer.0.bias"])
+        self.conv_layer[1].weight = nn.Parameter(net_HashDTH["conv_layer.1.weight"])
+        self.conv_layer[1].bias = nn.Parameter(net_HashDTH["conv_layer.1.bias"])
+
+        self.hash_layer[0].weight = nn.Parameter(net_HashDTH["hash_layer.0.weight"])#fc1
+        self.hash_layer[0].bias = nn.Parameter(net_HashDTH["hash_layer.0.bias"])
+        self.hash_layer[1].weight = nn.Parameter(net_HashDTH["hash_layer.1.weight"])#bn1
+        self.hash_layer[1].bias = nn.Parameter(net_HashDTH["hash_layer.1.bias"])
+        self.hash_layer[3].weight = nn.Parameter(net_HashDTH["hash_layer.3.weight"])#fc2
+        self.hash_layer[3].bias = nn.Parameter(net_HashDTH["hash_layer.3.bias"])
+        self.hash_layer[5].weight = nn.Parameter(net_HashDTH["hash_layer.3.weight"].repeat(1,2))
+        self.hash_layer[5].bias = nn.Parameter(net_HashDTH["hash_layer.3.bias"])
+        # nn.init.xavier_normal_(self.hash_layer[5].weight.data,gain=1.0)
+        # self.hash_layer[5].bias.data.fill_(0.0)
+        self.hash_layer[7].weight = nn.Parameter(net_HashDTH["hash_layer.5.weight"])#fc3
+        self.hash_layer[7].bias = nn.Parameter(net_HashDTH["hash_layer.5.bias"])
+
+
+    def forward(self, x):
+        x = x.view(x.size(0), 2048,1,1)
+        x = self.conv_layer(x)
+        x = x.view(x.size(0), 2048)
+        x = self.hash_layer(x)
+        return x
+
+class HashTransNet3(nn.Module):
+    def __init__(self, hash_bit, pretrained=True):
+        super(HashTransNet3, self).__init__()
+        model_path = "save/DSH/GLDv2-0-test0.161-net1-model.pt"
+        net_HashDTH = torch.load(model_path)
+
+        conv1 = nn.Conv2d(in_channels=2048,out_channels= 2048,kernel_size=1,stride=1,padding=0)
+        cl1 = nn.Linear(2048, 2048)
+        # nn.init.xavier_normal_(cl1.weight.data,gain=1.0) 
+        # cl1.bias.data.fill_(0.0)
+        # cl1.weight = nn.Parameter(model_alexnet.classifier[1].weight[0:1024,0:2048])
+        # cl1.bias = nn.Parameter(model_alexnet.classifier[1].bias[0:1024])
+        cl2 = nn.Linear(2048, 4096)
+        cl3 = nn.Linear(4096, 4096)
+        self.conv_layer = nn.Sequential(
+            conv1,
+            nn.BatchNorm2d(2048),
+            nn.Tanh(),
+        )
+
+        self.hash_layer = nn.Sequential(
+            cl1,
+            nn.BatchNorm1d(2048),
+            nn.Tanh(),
+            cl2,
+            nn.Tanh(),
+            # nn.Dropout(p=0.2),
+            cl3,
+            nn.Tanh(),
+            nn.Linear(4096, hash_bit),  
+            nn.Tanh(),
+        )
+        self.conv_layer[0].weight = nn.Parameter(net_HashDTH["conv_layer.0.weight"])
+        self.conv_layer[0].bias = nn.Parameter(net_HashDTH["conv_layer.0.bias"])
+        self.conv_layer[1].weight = nn.Parameter(net_HashDTH["conv_layer.1.weight"])
+        self.conv_layer[1].bias = nn.Parameter(net_HashDTH["conv_layer.1.bias"])
+
+        self.hash_layer[0].weight = nn.Parameter(net_HashDTH["hash_layer.0.weight"])#fc1
+        self.hash_layer[0].bias = nn.Parameter(net_HashDTH["hash_layer.0.bias"])
+        self.hash_layer[1].weight = nn.Parameter(net_HashDTH["hash_layer.1.weight"])#bn1
+        self.hash_layer[1].bias = nn.Parameter(net_HashDTH["hash_layer.1.bias"])
+        self.hash_layer[3].weight = nn.Parameter(net_HashDTH["hash_layer.3.weight"])#fc2
+        self.hash_layer[3].bias = nn.Parameter(net_HashDTH["hash_layer.3.bias"])
+        # self.hash_layer[6].weight = nn.Parameter(net_HashDTH["hash_layer.3.weight"].repeat(1,2))
+        # self.hash_layer[6].bias = nn.Parameter(net_HashDTH["hash_layer.3.bias"])
+        nn.init.xavier_normal_(self.hash_layer[5].weight.data,gain=1.0)
+        self.hash_layer[5].bias.data.fill_(0.0)
+        self.hash_layer[7].weight = nn.Parameter(net_HashDTH["hash_layer.5.weight"])#fc3
+        self.hash_layer[7].bias = nn.Parameter(net_HashDTH["hash_layer.5.bias"])
+
+
+    def forward(self, x):
+        x = x.view(x.size(0), 2048,1,1)
+        x = self.conv_layer(x)
+        x = x.view(x.size(0), 2048)
+        x = self.hash_layer(x)
+        return x
+
+class HashTransNet4(nn.Module):
+    def __init__(self, hash_bit, pretrained=True):
+        super(HashTransNet4, self).__init__()
+        model_path = "save/DSH/GLDv2-0-test0.1667-net3-model.pt"
+        net_HashDTH = torch.load(model_path)
+
+        conv1 = nn.Conv2d(in_channels=2048,out_channels= 2048,kernel_size=1,stride=1,padding=0)
+        cl1 = nn.Linear(2048, 2048)
+        cl2 = nn.Linear(2048, 4096)
+        cl3 = nn.Linear(4096, 4096)
+        cl4 = nn.Linear(4096, 4096)
+        self.conv_layer = nn.Sequential(
+            conv1,
+            nn.BatchNorm2d(2048),
+            nn.Tanh(),
+        )
+
+        self.hash_layer = nn.Sequential(
+            cl1,
+            nn.BatchNorm1d(2048),
+            nn.Tanh(),
+            cl2,
+            nn.Tanh(),
+            # nn.Dropout(p=0.2),
+            cl3,
+            nn.BatchNorm1d(4096),
+            # nn.Sigmoid(),
+            nn.Tanh(),
+            cl4,
+            nn.Tanh(),
+            nn.Linear(4096, hash_bit),  
+            nn.Tanh(),
+        )
+        self.conv_layer[0].weight = nn.Parameter(net_HashDTH["conv_layer.0.weight"])
+        self.conv_layer[0].bias = nn.Parameter(net_HashDTH["conv_layer.0.bias"])
+        self.conv_layer[1].weight = nn.Parameter(net_HashDTH["conv_layer.1.weight"])
+        self.conv_layer[1].bias = nn.Parameter(net_HashDTH["conv_layer.1.bias"])
+
+        self.hash_layer[0].weight = nn.Parameter(net_HashDTH["hash_layer.0.weight"])#fc1
+        self.hash_layer[0].bias = nn.Parameter(net_HashDTH["hash_layer.0.bias"])
+        self.hash_layer[1].weight = nn.Parameter(net_HashDTH["hash_layer.1.weight"])#bn1
+        self.hash_layer[1].bias = nn.Parameter(net_HashDTH["hash_layer.1.bias"])
+        self.hash_layer[3].weight = nn.Parameter(net_HashDTH["hash_layer.3.weight"])#fc2
+        self.hash_layer[3].bias = nn.Parameter(net_HashDTH["hash_layer.3.bias"])
+        self.hash_layer[5].weight = nn.Parameter(net_HashDTH["hash_layer.5.weight"])
+        self.hash_layer[5].bias = nn.Parameter(net_HashDTH["hash_layer.5.bias"])
+        nn.init.xavier_normal_(self.hash_layer[8].weight.data,gain=1.0)
+        self.hash_layer[8].bias.data.fill_(0.0)
+        self.hash_layer[10].weight = nn.Parameter(net_HashDTH["hash_layer.7.weight"])#fc3
+        self.hash_layer[10].bias = nn.Parameter(net_HashDTH["hash_layer.7.bias"])
+
+
+    def forward(self, x):
+        x = x.view(x.size(0), 2048,1,1)
+        x = self.conv_layer(x)
+        x = x.view(x.size(0), 2048)
+        x = self.hash_layer(x)
+        return x
+
 
 class AlexNet(nn.Module):
     def __init__(self, hash_bit, pretrained=True):

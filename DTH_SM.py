@@ -32,7 +32,9 @@ def get_config():
         # "alpha": 0.1,
         # "alpha": 0.5,
         "alpha": 0.02,
-        "beta": 0.05,
+        "beta": 0.03,
+        "gamma1": 2,
+        "gamma2": 3,
         # "optimizer":{"type":  optim.SGD, "optim_params": {"lr": 0.05, "weight_decay": 10 ** -5}},
         # "optimizer": {"type": optim.RMSprop, "optim_params": {"lr": 1e-5, "weight_decay": 10 ** -5}},
         "optimizer": {"type": optim.RMSprop, "optim_params": {"lr": 1e-4, "weight_decay": 10 ** -5}},
@@ -42,7 +44,7 @@ def get_config():
         "resize_size": 32,
         "crop_size": 224,
         "batch_size": 64,
-        "net": HashTransNet,
+        "net": HashTransNet4,
         # "net":ResNet,
         "dataset": "GLDv2-0",
         # "dataset": "cifar10",
@@ -56,7 +58,7 @@ def get_config():
         # "dataset": "nuswide_21_m",
         # "dataset": "nuswide_81_m",
         "epoch": 100,
-        "test_map": 5,
+        "test_map": 3,
         "save_path": "save/DSH",
         # "device":torch.device("cpu"),
         "device": torch.device("cuda:3"),
@@ -180,7 +182,7 @@ class DTHLoss_PartSample(torch.nn.Module):
     def forward(self, u, y, ind,image,fo, config):
         self.U[ind, :] = u.data
         # self.Y[ind] = y.float()
-        self.sign_L[0:u.shape[0],:] = torch.nn.functional.normalize(image.sign())
+        self.sign_L[0:u.shape[0],:] = 8 * torch.nn.functional.normalize(image.sign())
 
         max_SampleNum = 30
 
@@ -222,7 +224,7 @@ class DTHLoss_PartSample(torch.nn.Module):
         fo.flush()
 
         # loss = loss4
-        loss = loss3 + loss4 + loss5
+        loss = loss3 + config["gamma2"]*loss4 + loss5
         # return loss1 + loss2
         return loss
 
@@ -235,7 +237,8 @@ def train_val(config, bit):
     config["num_dataset"] = num_dataset
 
     # model_path = "save/DSH/GLDv2-0-test0.14348-end-16k-model.pt"
-    model_path = "save/DSH/GLDv2-0-test0.146-33k_l3+l4-model.pt"
+    # model_path = "save/DSH/GLDv2-0-test0.1656-net3-model.pt"
+    model_path = "save/DSH/GLDv2-0-test0.1654-net4-model.pt"
     net = config["net"](bit).to(device)
     if(os.path.exists(model_path)):
         net.load_state_dict(torch.load(model_path))
