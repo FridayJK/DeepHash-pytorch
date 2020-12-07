@@ -29,12 +29,18 @@ def set_learning_rate(optimizer, epoch, iter_size, iter_num):
 
 def get_config():
     config = {
-        # "alpha": 0.1,
+        # "alpha": 0.002,
+        # "alpha": 0.00005,
+        # "alpha": 0.0002,
+        "alpha": 0.0005,
+        # "alpha": 0.0005,
         # "alpha": 0.5,
-        "alpha": 0.02,
+        "alpha1": 0.02,
+        "alpha2": 0.01,
         "beta": 0.03,
         "gamma1": 2,
         "gamma2": 3,
+        "gamma3": 6,
         # "optimizer":{"type":  optim.SGD, "optim_params": {"lr": 0.05, "weight_decay": 10 ** -5}},
         # "optimizer": {"type": optim.RMSprop, "optim_params": {"lr": 1e-5, "weight_decay": 10 ** -5}},
         "optimizer": {"type": optim.RMSprop, "optim_params": {"lr": 1e-4, "weight_decay": 10 ** -5}},
@@ -43,7 +49,8 @@ def get_config():
         # "crop_size": 224,
         "resize_size": 32,
         "crop_size": 224,
-        "batch_size": 64,
+        # "batch_size": 64,
+        "batch_size": 48,
         "net": HashTransNet4,
         # "net":ResNet,
         "dataset": "GLDv2-0",
@@ -58,7 +65,7 @@ def get_config():
         # "dataset": "nuswide_21_m",
         # "dataset": "nuswide_81_m",
         "epoch": 100,
-        "test_map": 3,
+        "test_map": 1,
         "save_path": "save/DSH",
         # "device":torch.device("cpu"),
         "device": torch.device("cuda:3"),
@@ -182,7 +189,8 @@ class DTHLoss_PartSample(torch.nn.Module):
     def forward(self, u, y, ind,image,fo, config):
         self.U[ind, :] = u.data
         # self.Y[ind] = y.float()
-        self.sign_L[0:u.shape[0],:] = 8 * torch.nn.functional.normalize(image.sign())
+        # self.sign_L[0:u.shape[0],:] = 8 * torch.nn.functional.normalize(image.sign())
+        self.sign_L[0:u.shape[0],:] = 8 * image
 
         max_SampleNum = 30
 
@@ -218,14 +226,77 @@ class DTHLoss_PartSample(torch.nn.Module):
         loss4 = loss4.sum(1).mean()
 
         loss5 = (torch.nn.functional.normalize(self.sign_L[0:u.shape[0],:]) - torch.nn.functional.normalize(u)).abs()
-        loss5 = config["alpha"] * loss5.sum(1).mean()
+        loss5 = config["alpha2"] * loss5.sum(1).mean()
 
         fo.write(str(loss3.data.cpu().numpy())+" "+str(loss4.data.cpu().numpy())+" "+str(loss5.data.cpu().numpy())+"\n")
         fo.flush()
 
         # loss = loss4
-        loss = loss3 + config["gamma2"]*loss4 + loss5
+        # loss = loss3 + config["gamma3"]*loss4 + loss5
+        loss = loss3 + config["gamma3"]*loss4
         # return loss1 + loss2
+        return loss
+
+class DTHLoss_ALL_PartSample(torch.nn.Module):
+    def __init__(self, config, bit):
+        super(DTHLoss_ALL_PartSample, self).__init__()
+        self.m = 2 * bit
+        self.U = torch.zeros(config["num_train"], bit).float().to(config["device"])
+        # self.Y = torch.zeros(config["num_train"], config["n_class"]).float()
+        # self.U = torch.zeros(config["num_train"], bit).float().to(config["device"])
+        self.Y = torch.zeros(config["num_train"]).float()
+        self.sign_L = torch.zeros(config["batch_size"],bit).to(config["device"])
+
+    def forward(self, u, y, ind,image,fo, config):
+        self.U[ind, :] = u.data
+        self.Y[ind] = y.float()
+        # self.sign_L[0:u.shape[0],:] = 8 * torch.nn.functional.normalize(image.sign())
+        self.sign_L[0:u.shape[0],:] = 8 * image
+
+        max_SampleNum = 30
+
+        #make part sample
+        randm_indx = torch.randperm(max_SampleNum*y.shape[0])
+        step = 0
+        for i , indx in enumerate(y):
+            tmp_idx = torch.where(self.Y==indx)
+            if(tmp_idx[0].shape[0]>max_SampleNum):
+                randm_indx[step:(step+max_SampleNum)] = tmp_idx[0][0:max_SampleNum]
+                step += max_SampleNum
+            else:
+                randm_indx[step:(step+tmp_idx[0].shape[0])] = tmp_idx[0]
+                step += tmp_idx[0].shape[0]
+        #new smple pool
+        Y_POOL = self.Y[randm_indx[0:step]]
+        U_POLL = self.U[randm_indx[0:step], :]
+        dist = (u.unsqueeze(1) - U_POLL.unsqueeze(0)).pow(2).sum(dim=2)
+        y = (torch.repeat_interleave(y,step).reshape(y.shape[0],step) - Y_POOL.repeat(y.shape[0]).reshape(y.shape[0],step))
+        y = (y!=0).float()
+        y = y.to(config["device"])
+        loss1 = (1 - y) / 2 * dist + y / 2 * (self.m - dist).clamp(min=0)
+        loss1 = config["alpha"] * loss1.mean()
+
+        loss3 = (torch.nn.functional.normalize(self.sign_L[0:u.shape[0],:]) - torch.nn.functional.normalize(u)).pow(2).sum(1)
+        loss3 = loss3.mean()
+        # loss2 = config["alpha"] * (u.pow(2) - 1).abs().mean()
+        # loss2 = config["alpha"] * (u.abs() - 1).abs().mean()
+        # loss2 = config["alpha"] * (1 - u.sign()).abs().mean()
+        # fo.write(str(loss1.data.cpu().numpy())+" "+str(loss2.data.cpu().numpy())+"\n")
+
+        loss4 = (self.sign_L[0:u.shape[0],:].mul(u)<0).float().mul((torch.nn.functional.normalize(self.sign_L[0:u.shape[0],:]) - torch.nn.functional.normalize(u)).pow(2))
+        loss4 = loss4.sum(1).mean()
+
+        loss5 = (torch.nn.functional.normalize(self.sign_L[0:u.shape[0],:]) - torch.nn.functional.normalize(u)).abs()
+        loss5 = config["alpha2"] * loss5.sum(1).mean()
+
+        fo.write(str(loss1.data.cpu().numpy())+" "+str(loss3.data.cpu().numpy())+" "+str(loss4.data.cpu().numpy())+" "+str(loss5.data.cpu().numpy())+"\n")
+        fo.flush()
+
+        loss = 0
+        # loss = loss4
+        # loss = loss3 + config["gamma3"]*loss4 + loss5
+        loss = loss + loss3 + config["gamma3"]*loss4
+        loss = loss + loss1
         return loss
 
 def train_val(config, bit):
@@ -238,7 +309,8 @@ def train_val(config, bit):
 
     # model_path = "save/DSH/GLDv2-0-test0.14348-end-16k-model.pt"
     # model_path = "save/DSH/GLDv2-0-test0.1656-net3-model.pt"
-    model_path = "save/DSH/GLDv2-0-test0.1654-net4-model.pt"
+    # model_path = "save/DSH/GLDv2-0-test0.1654-net4-model.pt"
+    model_path = "save/DSH/GLDv2-0-test0.1846-net4_auto_encoder-model.pt"
     net = config["net"](bit).to(device)
     if(os.path.exists(model_path)):
         net.load_state_dict(torch.load(model_path))
@@ -246,12 +318,12 @@ def train_val(config, bit):
 
     optimizer = config["optimizer"]["type"](net.parameters(), **(config["optimizer"]["optim_params"]))
 
-    criterion = DTHLoss_PartSample(config, bit)
+    criterion = DTHLoss_ALL_PartSample(config, bit)
 
     Best_mAP = 0
 
     current_time1 = time.strftime('%H:%M:%S', time.localtime(time.time()))
-    current_time1 = "save/log/" + current_time1 + "log.txt"
+    current_time1 = "save/log/" + current_time1 + "_AllLoss_log.txt"
     fo = open(current_time1,"wt")
 
     for epoch in range(config["epoch"]):
@@ -297,7 +369,9 @@ def train_val(config, bit):
             trn_binary, trn_label = compute_result_gldv2_only_feat(dataset_loader, net, config, 1, device=device)
             mAP = CalcTopMAP_ByIndex(trn_binary.numpy(), tst_binary.numpy(), trn_label.numpy(), tst_label.numpy(),
                              config["topK"])
-
+            
+            fo.write("mAP:"+str(mAP)+"\n")
+            fo.flush()
             if mAP > Best_mAP:
                 Best_mAP = mAP
 
